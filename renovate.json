@@ -1,0 +1,12 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["github>AndreaCovelli/renovate-config"],
+  "packageRules": [
+    {
+      "description": "Keep runtime support changes deliberate",
+      "matchManagers": ["pep621"],
+      "matchDepTypes": ["requires-python"],
+      "enabled": false
+    }
+  ]
+}

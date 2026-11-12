@@ -1,0 +1,42 @@
+[settings]
+lockfile = true
+
+[tools]
+python = "3.15.2"
+uv = "0.13.7"
+"github:kjanat/actionlint" = "1.17.1"
+
+[env]
+UV_PYTHON = { value = "{{ tools.python.path }}", tools = true }
+
+[tasks.setup]
+description = "Install locked development dependencies"
+run = "uv sync --locked"
+
+[tasks.lint]
+description = "Check lint and formatting"
+run = ["uv run --locked ruff check .", "uv run --locked ruff format --check ."]
+
+[tasks.format]
+description = "Format Python files"
+run = "uv run --locked ruff format ."
+
+[tasks.test]
+description = "Run the test suite"
+run = "uv run --locked pytest"
+
+[tasks."check:actions"]
+description = "Lint GitHub Actions workflows"
+run = "actionlint"
+
+[tasks.check]
+description = "Run every offline repository check"
+run = [
+  { task = "lint" },
+  { task = "test" },
+  { task = "check:actions" },
+]
+
+[tasks.collect]
+description = "Save transcript usage and the rate-limit log into the store"
+run = "uv run --locked cc-compact-tuning collect"

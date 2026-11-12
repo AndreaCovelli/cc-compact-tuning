@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Run every check regardless of changed paths
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    permissions:
+      checks: read
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Check
+        uses: AndreaCovelli/repo-baseline/.github/actions/check@a9310352317e707bffc0e031caf29d3c48d7eb97 # v1.1.0
+        with:
+          force: ${{ inputs.force == true && 'true' || 'false' }}
+          setup-task: setup
+          cache-path: ~/.cache/uv
+          cache-key-files: uv.lock
+          paths: |
+            **/*.py
+            pyproject.toml
+            uv.lock
+            mise.toml
+            mise.lock
+            .github/workflows/**

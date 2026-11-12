@@ -2,8 +2,32 @@
 name = "cc-compact-tuning"
 version = "0.1.0"
 description = "Fit Claude subscription usage weights from Claude Code transcripts and tune the auto-compact window"
-requires-python = ">=3.11"
-dependencies = ["numpy", "scipy"]
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "numpy>=2.5.4",
+    "pydantic-settings>=2.16.2",
+    "scipy>=1.18.1",
+]
 
-[tool.uv]
-package = false
+[project.scripts]
+cc-compact-tuning = "cc_compact_tuning.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.13.7,<0.14"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 110
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "ruff>=0.17.4",
+]
