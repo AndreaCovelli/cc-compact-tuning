@@ -29,7 +29,7 @@ jobs:
       pull-requests: read
     steps:
       - name: Check
-        uses: AndreaCovelli/repo-baseline/.github/actions/check@a9310352317e707bffc0e031caf29d3c48d7eb97 # v1.1.0
+        uses: AndreaCovelli/repo-baseline/.github/actions/check@45575f181b7e24092a3cca981f395e2644431347 # fix/mise-2026.11.7
         with:
           force: ${{ inputs.force == true && 'true' || 'false' }}
           setup-task: setup
