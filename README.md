@@ -4,6 +4,15 @@ Fits how a Claude subscription's usage limits weigh each kind of token, using Cl
 transcripts, then replays real sessions to find the auto-compact window that uses the least
 of the limit.
 
+> **Unofficial, and fragile by nature.** This reads Claude Code's local transcript files and
+> the status line's rate-limit fields, neither of which Anthropic documents or promises to keep
+> stable. How the usage limits weigh tokens is not published either: the weights here are
+> estimates fitted to one account's data, and Anthropic can change them without notice (they
+> have changed before). A Claude Code update can change the transcript format and break
+> `collect`, and a change in limit accounting makes old fits stale. Treat the results as a
+> measurement of your own usage at the time, not as a specification. Not affiliated with or
+> endorsed by Anthropic.
+
 ## Usage
 
 ```sh
