@@ -35,10 +35,3 @@ jobs:
           setup-task: setup
           cache-path: ~/.cache/uv
           cache-key-files: uv.lock
-          paths: |
-            **/*.py
-            pyproject.toml
-            uv.lock
-            mise.toml
-            mise.lock
-            .github/workflows/**
