@@ -1,0 +1,9 @@
+[project]
+name = "cc-compact-tuning"
+version = "0.1.0"
+description = "Fit Claude subscription usage weights from Claude Code transcripts and tune the auto-compact window"
+requires-python = ">=3.11"
+dependencies = ["numpy", "scipy"]
+
+[tool.uv]
+package = false

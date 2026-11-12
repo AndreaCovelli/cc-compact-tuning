@@ -1,0 +1,8 @@
+[Unit]
+Description=Save Claude Code usage from transcripts before cleanupPeriodDays deletes them
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/src/cc-compact-tuning
+ExecStart=%h/.local/share/mise/shims/uv run --quiet python collect.py
+Nice=10
