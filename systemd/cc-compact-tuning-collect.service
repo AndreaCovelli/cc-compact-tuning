@@ -4,5 +4,5 @@ Description=Save Claude Code usage from transcripts before cleanupPeriodDays del
 [Service]
 Type=oneshot
 WorkingDirectory=%h/src/cc-compact-tuning
-ExecStart=%h/.local/share/mise/shims/uv run --quiet python collect.py
+ExecStart=%h/.local/bin/mise run --quiet collect
 Nice=10
