@@ -1,6 +1,6 @@
 from conftest import T0, assistant, write_jsonl
 
-from cc_compact_tuning import cli, store
+from cc_compact_tuning import cli, replay, store
 
 
 def test_collect_reads_its_paths_from_the_environment(tmp_path, monkeypatch, capsys):
@@ -13,3 +13,11 @@ def test_collect_reads_its_paths_from_the_environment(tmp_path, monkeypatch, cap
 
     assert "requests: 1 (+1)" in capsys.readouterr().out
     assert store.load(tmp_path / "data" / "store.json.gz")["requests"]["m1"]["out"] == 7
+
+
+def test_replay_takes_the_model_by_its_short_name(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(replay, "report", lambda st, d, w, model: seen.update(model=model))
+    monkeypatch.setenv("CC_TUNING_DATA_DIR", "/nonexistent")
+    cli.main(["replay", "--model", "fable"])
+    assert seen["model"] == "claude-fable-5-2"
