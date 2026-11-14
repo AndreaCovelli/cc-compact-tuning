@@ -189,7 +189,7 @@ def label(t):
     return "never" if t > 1e9 else f"{t / 1e3:.0f}K"
 
 
-FITTED_W = [1, 1.25, 2, 0.0258, 5.25]  # input, 5m write, 1h write, read, output
+FITTED_W = [1, 1.25, 2, 0.0217, 4.32]  # input, 5m write, 1h write, read, output
 
 
 def workload(S: Store, model: str = OPUS):
