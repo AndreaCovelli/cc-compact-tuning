@@ -72,9 +72,3 @@ Run `mise run check` before committing; CI runs the same checks.
 - Dated constants (`replay.SWITCH`, the 200K window switch) and thresholds
   (`windows.FABLE_SHARE`, `MIN_FABLE_WINDOWS`, `replay.MIN_COMPACTIONS`) are part of the method
   described in the README; change them together with its "Method" section.
-
-## Git
-
-- Conventional Commits (`feat`, `fix`, `docs`, `refactor`, `test`, `ci`, `build`, `chore`, ...),
-  with `!` / `BREAKING CHANGE:` for CLI or store-format breaks.
-- Feature work goes through a PR to `main`; CI (`Validate`) must pass.
