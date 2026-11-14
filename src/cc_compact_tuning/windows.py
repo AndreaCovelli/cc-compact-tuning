@@ -6,6 +6,10 @@ hit. A window is flagged when the transcripts cannot explain when it started: it
 have been used, outside Claude Code or before a /login, more than 10 minutes before the first
 request we see (window starts are rounded down to 10 minutes).
 
+One account's windows never overlap: the next one starts at the reset, after the hit. Two
+windows that do overlap mean two accounts were in use without a /login in the transcripts, so
+each counts the other's requests; both are flagged.
+
 A window with a large share of Fable is also flagged until there are MIN_FABLE_WINDOWS of them:
 with fewer, a free Fable factor could absorb each window's error rather than measure Fable.
 """
@@ -70,6 +74,10 @@ def build(store: Store, kind: str = "5h", length: int = 5 * 3600) -> list[dict[s
                 label=local(h["t"]),
             )
         )
+    for a in out:
+        for b in out:
+            if a is not b and a["eff"] < b["hit"] and b["eff"] < a["hit"]:
+                a["flags"].append(f"overlaps the window to {b['label']}: two accounts in use")
     fable = [w for w in out if w["fable"] >= FABLE_SHARE and not w["flags"]]
     if len(fable) < MIN_FABLE_WINDOWS:
         for w in fable:
