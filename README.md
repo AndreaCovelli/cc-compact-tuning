@@ -23,6 +23,7 @@ uv run --locked cc-compact-tuning windows             # 5-hour windows that ende
 uv run --locked cc-compact-tuning fit --bootstrap 1000   # weights from those windows
 uv run --locked cc-compact-tuning replay              # compaction cost, trigger replay, optimum
 uv run --locked cc-compact-tuning replay --weights 1 1.25 2 0.05 5   # with other weights
+uv run --locked cc-compact-tuning replay --model fable   # priced as fable, sonnet or haiku
 uv run --locked cc-compact-tuning fit-log             # weights from the status line's rate-limit log
 uv run --locked cc-compact-tuning fit-log --synthetic # check that fit on a log made from known weights
 ```
@@ -95,6 +96,11 @@ The data directory is outside the repository: it holds your own usage.
   measured amount per request, and a compaction resets it to the measured post-compaction
   size. The summary request is not in transcripts, so its cost comes from cost-state minus
   transcript totals.
+- **Other models.** `replay --model` prices each request at that model's API price ratios to
+  Opus, Haiku's 5× rate above 100K included, then weighs them per Opus token. It replays that
+  model's own sessions once it has 10 measured auto compactions, else the Opus sessions: how a
+  session grows and compacts depends on the work more than on the model. A Sonnet or Fable
+  factor scales every trigger alike, so it changes neither the optimum nor the percentages.
 
 ## Results (2026-11-12)
 

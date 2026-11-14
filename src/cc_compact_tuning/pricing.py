@@ -14,20 +14,26 @@ PRICES = {
     "claude-haiku-5-5": (0.10, 0.125, 0.20, 0.01, 0.50),  # prompts <= 100K tokens
 }
 HAIKU_LONG = (0.50, 0.625, 1.00, 0.05, 2.50)  # prompts > 100K tokens
+# Models priced higher above a prompt size: model -> (prompt tokens, prices above them).
+LONG_PROMPT = {"claude-haiku-5-5": (100_000, HAIKU_LONG)}
 OPUS = PRICES["claude-opus-5-5"]
 API_W = [p / OPUS[0] for p in OPUS]  # [1, 1.25, 2, 0.05, 5]
+MODELS = {m.split("-")[1]: m for m in PRICES}  # opus, fable, sonnet, haiku -> model id
+
+
+def price_ratio(model: str, prompt: float = 0) -> list[float]:
+    """Per-category price of `model` relative to Opus, for a prompt of `prompt` tokens. Unknown
+    models are priced as the listed model their id starts with, else as Opus."""
+    m = model if model in PRICES else next((k for k in PRICES if model.startswith(k)), None)
+    p = PRICES[m] if m else OPUS
+    if m in LONG_PROMPT and prompt > LONG_PROMPT[m][0]:
+        p = LONG_PROMPT[m][1]
+    return [a / b for a, b in zip(p, OPUS, strict=True)]
 
 
 def model_factor(r: dict[str, Any]) -> list[float]:
     """Per-category price of this request's model relative to Opus. Fast mode bills 2x."""
-    m = r["model"] or ""
-    p = PRICES.get(m)
-    if m == "claude-haiku-5-5" and r["inp"] + r["cw5"] + r["cw1"] + r["cr"] > 100_000:
-        p = HAIKU_LONG
-    if p is None:
-        base = next((k for k in PRICES if m.startswith(k)), None)
-        p = PRICES[base] if base else OPUS
-    f = [a / b for a, b in zip(p, OPUS, strict=True)]
+    f = price_ratio(r["model"] or "", r["inp"] + r["cw5"] + r["cw1"] + r["cr"])
     if r.get("speed") == "fast":
         f = [2 * x for x in f]
     return f

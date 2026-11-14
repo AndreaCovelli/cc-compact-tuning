@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from . import collect, fit, fit_log, replay, store, windows
+from .pricing import MODELS
 from .settings import Settings
 
 
@@ -25,14 +26,21 @@ def main(argv: Sequence[str] | None = None) -> None:
     sub.add_parser("windows", help="list the 5-hour windows that ended in a limit hit")
     f = sub.add_parser("fit", help="fit the usage weights to the limit-hit windows")
     f.add_argument("--bootstrap", type=int, default=1000, metavar="N", help="resamples (default 1000)")
-    r = sub.add_parser("replay", help="replay the Opus sessions at other auto-compact triggers")
+    r = sub.add_parser("replay", help="replay a model's sessions at other auto-compact triggers")
+    r.add_argument(
+        "--model",
+        choices=MODELS,
+        default="opus",
+        help="model to price the replay as, and whose sessions to replay if it has enough compactions"
+        " of its own, else the Opus sessions (default: opus)",
+    )
     r.add_argument(
         "--weights",
         type=float,
         nargs=5,
         default=replay.FITTED_W,
         metavar=("INPUT", "CW5", "CW1", "READ", "OUTPUT"),
-        help="usage weights per token category (default: the fitted ones)",
+        help="usage weights per Opus token category (default: the fitted ones)",
     )
     lg = sub.add_parser("fit-log", help="fit the usage weights to the status line's rate-limit log")
     lg.add_argument("log", nargs="?", type=Path, help="log file (default: the status line's)")
@@ -49,6 +57,6 @@ def main(argv: Sequence[str] | None = None) -> None:
     elif a.cmd == "fit":
         fit.report(st, s.data_dir, a.bootstrap)
     elif a.cmd == "replay":
-        replay.report(st, s.data_dir, a.weights)
+        replay.report(st, s.data_dir, a.weights, MODELS[a.model])
     elif a.cmd == "fit-log":
         fit_log.report(st, s.data_dir, a.log or s.rate_log, a.synthetic)
