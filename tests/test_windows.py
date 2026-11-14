@@ -60,3 +60,15 @@ def test_fable_windows_are_flagged_until_there_are_enough():
     assert all(w["flags"] == ["50% Fable: factor needs 3 such windows, 2 so far"] for w in ws)
     assert not any(w["flags"] for w in windows.build(several(3, fable_out=50)))
     assert not any(w["flags"] for w in windows.build(several(1, fable_out=5)))  # under 10%
+
+
+def test_overlapping_windows_of_two_accounts_are_flagged():
+    st = store_with([request(60, out=10), request(4 * H, out=20)])
+    st["hits"]["h2"] = dict(t=4.6 * H, kind="5h", reset=8 * H, text="", session="s")  # starts at 3h
+    a, b = windows.build(st)
+    assert a["flags"] == [f"overlaps the window to {b['label']}: two accounts in use"]
+    assert b["flags"][-1] == f"overlaps the window to {a['label']}: two accounts in use"
+
+
+def test_consecutive_windows_do_not_overlap():
+    assert not any(w["flags"] for w in windows.build(several(3, fable_out=0)))

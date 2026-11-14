@@ -83,7 +83,9 @@ The data directory is outside the repository: it holds your own usage.
 - **Windows.** A 5-hour window that hit the limit used one whole budget, from reset − 5h to
   the hit. Accounts are switched with `/login`, so only requests after the last login count.
   A window is flagged when its account was in use more than 10 minutes before the first
-  request the transcripts show (claude.ai, or another account's segment).
+  request the transcripts show (claude.ai, or another account's segment). One account's
+  windows never overlap, so two that do mean two accounts were in use without a `/login` in
+  the transcripts; both are flagged, since each counts the other's requests.
 - **Fit.** Free weights: 1h cache write, cache read, output, and factors for Sonnet and Fable.
   Their tokens are converted to Opus at API prices first, so a factor multiplies the API
   ratio: Sonnet ×1 is 0.5 Opus tokens, Fable ×1 is 2 (1 for cache reads). Uncached input and
@@ -102,59 +104,62 @@ The data directory is outside the repository: it holds your own usage.
   session grows and compacts depends on the work more than on the model. A Sonnet or Fable
   factor scales every trigger alike, so it changes neither the optimum nor the percentages.
 
-## Results (2026-11-12)
-
-> **Fable is not measured yet.** The one window with much Fable in it (Nov 12, a third of its
-> usage) adds up to 68% of a budget when Fable is counted at its API price. If nothing else
-> was using the account, Fable counts about ×2.35 its API ratio, ≈4.7 Opus tokens per input
-> or output token. That window is flagged, since a factor fitted to one window says nothing.
-> Left in the fit with Fable at its API price, it drove the read weight to zero and the replay
-> to "never compact".
+## Results (2026-11-14)
 
 ### Weights
 
-Fitted on 14 clean windows out of 21. Every clean window lands at 100% ± 2%.
+Fitted on 20 clean windows out of 28, six of them at least 10% Fable. Clean windows land
+at 90–106% of a budget (rms 3.4%). Two windows on Nov 12 overlap (18:20–19:46): both
+accounts were in use without a `/login` in the transcripts, and with them in, the fit is off
+by 13% rms and the read weight drops to almost zero. They are flagged.
 
-| weight (relative to input) | API | Oct fit (16 hits, output fixed) | now |
-|---|---|---|---|
-| 1h cache write | 2 | 1.5 | 1.9 (80%: 1.2–2.7) |
-| cache read | 0.05 | 0.026 | 0.025 (80%: 0.011–0.037) |
-| output | 5 | 5 (assumed) | 5.3 (80%: 3.7–8.1) |
-| Sonnet token vs Opus token | 0.5 | – | ≈1.0 (80%: 0.5–1.6) |
-| Fable token vs Opus token (input, output) | 2 | – | not yet fitted; ≈4.7 from one window |
+| weight (relative to input) | API | Oct fit (16 hits, output fixed) | Nov 12 | now |
+|---|---|---|---|---|
+| 1h cache write | 2 | 1.5 | 1.9 | 2.3 (80%: 1.0–3.9) |
+| cache read | 0.05 | 0.026 | 0.025 | 0.025 (80%: 0.003–0.054) |
+| output | 5 | 5 (assumed) | 5.3 | 4.3 (80%: 2.6–9.7) |
+| Sonnet token vs Opus token | 0.5 | – | ≈1.0 | ≈1.0 (80%: 0.7–1.4) |
+| Fable token vs Opus token (input, output) | 2 | – | not fitted | 3.8 (80%: 3.3–4.1) |
 
 - The 1h write and cache read values are with output fixed at 5. Output is with the 1h write
-  fixed at 2.
+  fixed at 2. The replay uses the fit with the 1h write fixed at 2: input 1, 5m write 1.25,
+  1h write 2, read 0.0217, output 4.32.
 - The output ratio is only loosely identified. Fixed ratios from 2× to 8× fit almost as well
-  (rms 2.0–2.4%), so the windows confirm 5× rather than pin it.
-- The Sonnet factor rests on the few Sonnet-heavy windows. With Sonnet at the Opus price,
-  the clean windows' API-weighted totals vary by 3.0%; at its API price, by 7.4%.
+  (rms 3.4–4.0%), so the windows are consistent with 5× rather than pin it.
+- The Sonnet factor rests on the few Sonnet-heavy windows. On the 14 clean windows without
+  Fable, the API-weighted totals vary by 3.0% with Sonnet at the Opus price and by 7.4% at
+  its API price.
+- Fable counts ×1.92 its API ratio (80%: 1.66–2.05). A Fable cache read is then about 1.9
+  Opus cache reads. The factor is one number for every Fable category, so the fit cannot
+  tell whether Fable's reads count less than its input and output.
 
 ### Compaction
 
-- **Summary request:** 3.5K input, 0.9K cache write, reads 97% of the context, 6.6K output.
-- **First request after a compaction:** 46.9K context, of which 33.7K is written.
-- **Growth:** 2.15K per request.
-- **Cost of one compaction:** 107K input units plus reading the context.
+- **Summary request:** 3.5K input, 0.9K cache write, reads 97% of the context, 6.7K output.
+- **First request after a compaction:** 46.5K context, of which 33.0K is written.
+- **Growth:** 2.11K per request.
+- **Cost of one compaction:** 100K input units plus reading the context.
 
 ### Optimum
 
 | | optimum trigger | current 168K (200K window) | 270K (300K window) |
 |---|---|---|---|
-| fitted weights | 180K (213K window) | +0.3% | +2.3% |
-| API weights | 140–150K | +1.0% | +7.7% |
-| 1000 bootstrap fits | 170K / 180K / 220K | +0.2 / 0.3 / 1.1% | +0.2 / 2.1 / 3.6% |
+| fitted weights | 180K (213K window) | +0.5% | +2.0% |
+| API weights | 140–150K | +1.2% | +7.8% |
+| 1000 bootstrap fits | 150K / 180K / 300K | +0.3 / 0.5 / 4.0% | +0.1 / 1.8 / 4.4% |
 
 Bootstrap rows are 10/50/90%. By the week each session started, the best trigger is 180K,
-190K and 180K. The cost curve is flat between 150K and 200K.
+190K and 180K. The cost curve is within 1% of the optimum between 150K and 220K.
 
 ### Fable
 
-Fable's cache read is half Opus's relative to its own input. With the same structure, the
-optimum moves to a trigger of about 235K (window ≈270K). That assumes the subscription prices
-Fable's tokens relative to each other as the API does, which is not measured yet. If Fable's
-input and output count more while its cache reads do not (the one window above hints at it),
-reads get relatively cheaper and the optimal window gets larger.
+Fable has fewer than 10 measured auto compactions, so `replay --model fable` replays the
+Opus sessions priced as Fable. Its cache read is half Opus's relative to its own input, so
+compacting costs relatively more and the optimum moves to a trigger of 250K (283K window).
+The curve is within 0.6% from 180K to 300K. The current 168K trigger costs +1.4%, and 270K
+costs +0.1%. With API weights the optimum is 180K. Over the bootstrap fits it is
+180K / 300K / 300K. The fitted Fable factor scales every trigger alike, so these numbers
+assume the subscription prices Fable's tokens relative to each other as the API does.
 
 ## Rate-limit log
 
