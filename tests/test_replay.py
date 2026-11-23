@@ -101,3 +101,66 @@ def test_a_model_without_compactions_falls_back_to_the_opus_sessions(monkeypatch
 def test_nothing_to_replay_without_compactions():
     with pytest.raises(SystemExit):
         replay.workload(store.empty(), FABLE)
+
+
+def test_exact_optimum_formula_multiplies_rf_by_post():
+    w = [1, 1.25, 2, 0.05, 5]
+    T, K0 = replay.optimum(M, w)
+    expected = M["post"] + (2 * M["g"] * (M["rf"] * M["post"] + K0 / 0.05)) ** 0.5
+    assert T == pytest.approx(expected)
+
+
+def test_simulate_clamps_negative_cf_and_shrinks_cold_cache_cw():
+    # Simulate a large manual compaction / rewind making c + off < 0, plus a 2h gap triggering cold cache
+    s = {
+        "s": [
+            request(0, cr=150e3, cw1=2e3),
+            request(
+                100, cr=10e3, cw1=35e3
+            ),  # triggers counterfactual compaction at >100K -> off = post - 45K
+            request(200, cr=5e3, cw1=1e3),  # c + off = 6K + (40K - 45K) = 1K < SYSTEM
+            request(5000, cr=10e3, cw1=30e3),  # gap > 3600 & cw > 20e3: cold cache, cf must stay >= SYSTEM
+        ]
+    }
+    reqs, _ = replay.simulate(s, {}, 100e3, M)
+    for inp, cw, cr, _, _ in reqs:
+        assert inp + cw + cr >= 0
+        assert cw >= 0 and cr >= 0
+
+
+def test_measure_includes_negative_non_compaction_deltas_in_g(monkeypatch):
+    monkeypatch.setattr(replay, "MIN_COMPACTIONS", 3)
+    S = compacting_store(replay.OPUS, n=3)
+    # Add a microcompaction drop of -10K inside s0 (no compaction boundary between idx 10 and 11)
+    for i in range(11, 51):
+        S["requests"][f"s0-{i}"]["cr"] -= 10_000
+    S["cost_states"]["s0"]["modelUsage"][replay.OPUS]["cacheReadInputTokens"] -= 40 * 10_000
+    m = replay.measure(S, replay.OPUS)
+    assert m is not None and m["g"] < 2000
+
+
+def test_discrete_pct_does_not_interpolate_never():
+    vals = [180e3] * 85 + [1e12] * 15
+    assert replay.pct(vals)[2] == 1e12
+
+
+def test_report_uses_fitted_model_weights_when_configured(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(replay, "MIN_COMPACTIONS", 3)
+    monkeypatch.setitem(replay.FITTED_MODEL_W, FABLE, [1.0, 1.9, 2.0, 0.04, 7.0])
+    S = compacting_store(FABLE)
+    replay.report(S, tmp_path, fitted=None, model=FABLE)
+    out = capsys.readouterr().out
+    assert "fitted weights are per Fable token from fit-log" in out
+    assert "fitted weights per Fable token" in out
+
+
+def test_weekly_loop_covers_more_than_three_weeks(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(replay, "MIN_COMPACTIONS", 3)
+    S = compacting_store(replay.OPUS, n=3)
+    # Add a session 4 weeks after SWITCH
+    t_late = replay.SWITCH + 29 * 86400
+    S["requests"]["late-0"] = request(t_late, cr=50e3, cw1=2e3, out=500) | dict(session="late")
+    S["requests"]["late-1"] = request(t_late + 60, cr=52e3, cw1=2e3, out=500) | dict(session="late")
+    replay.report(S, tmp_path, fitted=[1, 1.25, 2, 0.03, 5], model=replay.OPUS)
+    out = capsys.readouterr().out
+    assert out.count("sessions): best") >= 2
