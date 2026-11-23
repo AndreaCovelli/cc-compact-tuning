@@ -22,7 +22,7 @@ It is unofficial: the transcript format and limit accounting are undocumented an
 | `windows.py` | rebuilds 5-hour windows that ended in a limit hit; flags unclean / Fable-heavy ones |
 | `fit.py` | least-squares fit of the weights on clean windows, with bootstrap saved to the data dir |
 | `fit_log.py` | alternative fit from rate-limit log percentage steps; `--synthetic` self-check |
-| `replay.py` | compaction cost measurement and trigger replay; holds `FITTED_W` |
+| `replay.py` | compaction cost measurement and trigger replay; holds `FITTED_W` and `FITTED_MODEL_W` |
 | `tests/` | pytest; `conftest.py` has builders (`request`, `assistant`, `write_jsonl`, `T0`) |
 | `systemd/` | user timer that runs `mise run collect` daily |
 
@@ -66,9 +66,9 @@ Run `mise run check` before committing; CI runs the same checks.
 
 ## Results and constants
 
-- The numbers in `README.md` ("Results") and `replay.FITTED_W` come from running the tool on
-  real data. Don't change them unless you have rerun `fit`/`replay` on that data; when you do,
-  update both and the date in the heading.
+- The numbers in `README.md` ("Results") and `replay.FITTED_W` / `replay.FITTED_MODEL_W` come
+  from running the tool on real data. Don't change them unless you have rerun
+  `fit`/`fit-log`/`replay` on that data; when you do, update both and the date in the heading.
 - Dated constants (`replay.SWITCH`, the 200K window switch) and thresholds
   (`windows.FABLE_SHARE`, `MIN_FABLE_WINDOWS`, `replay.MIN_COMPACTIONS`) are part of the method
   described in the README; change them together with its "Method" section.
