@@ -2,7 +2,8 @@
 
 Claude Code deletes transcripts after cleanupPeriodDays, so every run merges what it finds into the
 store instead of starting over: requests are keyed by message id, and records whose transcripts
-have since been deleted are kept. The status line's rate-limit log, which it cuts down past
+have since been deleted are kept. Both first-chunk (`t`) and last-chunk (`t_end`) timestamps are
+preserved across streaming updates. The status line's rate-limit log, which it cuts down past
 150 000 lines, is merged the same way.
 """
 
@@ -47,8 +48,10 @@ def _request(d: dict, session: str, agent: str | None) -> dict:
     cc = u.get("cache_creation") or {}
     cw = u.get("cache_creation_input_tokens") or 0
     cw1 = cc.get("ephemeral_1h_input_tokens") or 0
+    t = ts(d["timestamp"])
     return dict(
-        t=ts(d["timestamp"]),
+        t=t,
+        t_end=t,
         model=d["message"].get("model"),
         session=session,
         agent=agent,
@@ -123,12 +126,13 @@ def scan(path: Path, root: Path, store: Store) -> None:
             old = R.get(mid)
             if old:
                 # Streaming writes a message several times: the last copy has the final output
-                # count, the first the time of the request. A resumed session copies earlier
-                # messages into its own file, so the first owner is kept.
+                # count and completion time, the first the time of the request. A resumed session
+                # copies earlier messages into its own file, so the first owner is kept.
                 t = min(r["t"], old["t"])
+                t_end = max(r["t_end"], old.get("t_end", old["t"]))
                 if old["out"] > r["out"]:
                     r = dict(old)
-                r |= dict(t=t, session=old["session"], agent=old["agent"], side=old["side"])
+                r |= dict(t=t, t_end=t_end, session=old["session"], agent=old["agent"], side=old["side"])
             R[mid] = r
 
 

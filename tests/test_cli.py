@@ -17,7 +17,7 @@ def test_collect_reads_its_paths_from_the_environment(tmp_path, monkeypatch, cap
 
 def test_replay_takes_the_model_by_its_short_name(monkeypatch):
     seen = {}
-    monkeypatch.setattr(replay, "report", lambda st, d, w, model: seen.update(model=model))
+    monkeypatch.setattr(replay, "report", lambda st, d, w, model: seen.update(model=model, w=w))
     monkeypatch.setenv("CC_TUNING_DATA_DIR", "/nonexistent")
     cli.main(["replay", "--model", "fable"])
-    assert seen["model"] == "claude-fable-5-2"
+    assert seen["model"] == "claude-fable-5-2" and seen["w"] is None

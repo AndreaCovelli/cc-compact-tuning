@@ -69,7 +69,7 @@ def test_scan_dedupes_streamed_messages_and_finds_events(tmp_path, empty_store):
     collect.scan(transcript(root), root, empty_store)
 
     (r,) = empty_store["requests"].values()
-    assert (r["t"], r["out"], r["session"]) == (T0, 400, "sess-a")  # first time, final output
+    assert (r["t"], r["t_end"], r["out"], r["session"]) == (T0, T0 + 5, 400, "sess-a")
     assert (r["cw1"], r["cw5"], r["cr"]) == (800, 200, 50_000)
     (h,) = empty_store["hits"].values()
     assert h["kind"] == "5h" and h["reset"] > h["t"]

@@ -38,9 +38,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         "--weights",
         type=float,
         nargs=5,
-        default=replay.FITTED_W,
+        default=None,
         metavar=("INPUT", "CW5", "CW1", "READ", "OUTPUT"),
-        help="usage weights per Opus token category (default: the fitted ones)",
+        help="usage weights per Opus token category (default: fitted weights for the chosen model)",
     )
     lg = sub.add_parser("fit-log", help="fit the usage weights to the status line's rate-limit log")
     lg.add_argument("log", nargs="?", type=Path, help="log file (default: the status line's)")
