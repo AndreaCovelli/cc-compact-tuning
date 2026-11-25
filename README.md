@@ -264,11 +264,25 @@ their findings differ:
 | [claude-meter](https://github.com/abhishekray07/claude-meter) | Proxy capturing rate-limit headers | API price fits best |
 | [Medium write-up (Sep 2026)](https://medium.com/@oleksandrslobodianiuk/i-measured-the-claude-max-meter-here-is-what-a-token-actually-weighs-d3385a226d7c) | Controlled `claude -p` runs | about 1/19 of input |
 
-Here a cache read is `0.0366` of an uncached input token (about 1/27), inside that range. What
-this tool adds is the compaction replay and trigger optimum, two independent fits that cross-check
-each other with bootstrap ranges, attribution of overlapping accounts, and Fable weights per token
-type. Pooling results across accounts and plans is the way to narrow the spread; an export of the
-fitted weights without session data is planned.
+Here a cache read is `0.0366` of an uncached input token (about 1/27), inside that range.
+
+Other tools replay transcripts to pick the auto-compact trigger, pricing tokens at API rates
+(Ration also calibrates roughly against the 5-hour meter):
+
+| Project | Method | Recommends |
+|---|---|---|
+| [context-compaction-threshold](https://github.com/pellorao/context-compaction-threshold) | Replays sessions, fits compaction cost and latency from measured compactions, block bootstrap; also Codex models | `autoCompactWindow` per model, trading cost against compaction time |
+| [Ration](https://github.com/KNambiarDJsc/Ration) (`ration governor`) | Replays sessions at candidate windows and picks the best pessimistic case | e.g. `400K` from a 1M default |
+| [compactsim](https://github.com/princejain756/compactsim) | Replays `400K` / `250K` / `150K` windows; also ranks tool output by context it occupies | the cheapest of the three |
+| [claude-token-experiment](https://github.com/EvanOman/claude-token-experiment) ([write-up](https://evanoman.com/blog/2026/context-cap)) | Replays caps from `200K` to `1M`, then a rule on how cost splits by session length | `200K`, `400K`, `600K` or no cap |
+| [Autocompact Threshold Replay](https://autocompact.haoli-agi.com/article/) | A prompt that has the agent replay its own transcripts | depends on the sessions |
+
+The weights move the answer: at API weights this tool's Opus optimum is `130K` rather than
+`180K`. What it adds is the replay on weights fitted to the limit itself, from two independent
+fits that cross-check each other with bootstrap ranges, with overlapping accounts attributed,
+Fable fitted per token type, and each session's own post-compaction context. Pooling results
+across accounts and plans is the way to narrow the spread; an export of the fitted weights
+without session data is planned.
 
 Whether undisclosed limits meet EU consumer-information rules is argued in Novović,
 ["A Cat, Bought in a Bag"](https://kluwerlawonline.com/journalarticle/Journal+of+European+Consumer+and+Market+Law/15.4/EuCML2026032)
