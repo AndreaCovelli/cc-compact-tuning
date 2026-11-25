@@ -4,6 +4,15 @@ Haiku or Fable) since the switch to a 200K window at other trigger points.
 The summary request that writes a compaction is not in the transcript; the session's cost-state
 record counts it, so per-session cost-state minus transcript totals gives its tokens.
 
+After a simulated compaction a session restarts at its own post-compaction context and cache write
+(the first request after its real compactions), each session's median shrunk toward the median over
+all sessions by k = within / between-session variance, so a session with one compaction is not
+taken at face value. Sessions without a measured compaction use the overall medians. The context
+left is not modelled as growing with the trigger. It tracks the triggering turn's overshoot (the
+context compacted minus the request before it, correlation ~0.8), not the context before that turn
+(~-0.1), and compactions at a ~268K trigger before the switch left less (median 40.6K) than at
+~169K after it (47.6K). The apparent within-session slope comes from a few large overshoots.
+
 Tokens are weighed either with per-model fitted weights from `fit-log` (when available in
 `FITTED_MODEL_W`, e.g. Fable) or at the model's API price ratios to Opus (Haiku costs 5x above a
 100K prompt) followed by Opus usage weights (`FITTED_W`). A model with fewer than MIN_COMPACTIONS
@@ -28,9 +37,9 @@ SYSTEM = 14.3e3  # system prompt + tools: what a cold resume after compaction st
 NAMES = {m: k.capitalize() for k, m in MODELS.items()}
 MIN_COMPACTIONS = 10  # measured compactions a model needs for its own sessions to be replayed
 
-FITTED_W = [1, 2.05, 2, 0.0368, 7.63]  # input, 5m write, 1h write, read, output (per Opus token, fit-log)
+FITTED_W = [1, 2.06, 2, 0.0366, 7.65]  # input, 5m write, 1h write, read, output (per Opus token, fit-log)
 FITTED_MODEL_W: dict[str, list[float]] = {
-    MODELS["fable"]: [1, 2.05, 2, 0.0226, 5.74],
+    MODELS["fable"]: [1, 2.06, 2, 0.0227, 5.74],
 }  # per-model fitted weights in that model's own tokens (fit-log)
 
 
@@ -109,6 +118,7 @@ def measure(S, model=OPUS):
     )
     # First main-thread request after each compaction: what is left, and what it writes.
     post, postw, g = [], [], []
+    by_post, by_postw = collections.defaultdict(list), collections.defaultdict(list)
     for sid, rs in main.items():
         bts = [c["t"] for c in comps.get(sid, [])]
         for b in bts:
@@ -116,6 +126,8 @@ def measure(S, model=OPUS):
             if nxt and nxt["t"] - b < 3600:
                 post.append(ctx(nxt))
                 postw.append(nxt["cw5"] + nxt["cw1"])
+                by_post[sid].append(post[-1])
+                by_postw[sid].append(postw[-1])
         sbts = all_main_bts.get(sid, ())
         for a, b in itertools.pairwise(rs):
             if any(a["t"] < bt < b["t"] for bt in sbts):
@@ -128,7 +140,26 @@ def measure(S, model=OPUS):
     m |= dict(
         post=st.median(post), postw=st.median(postw), g=st.mean(g), g_med=st.median(g), ncomp_post=len(post)
     )
+    m["post_s"], m["post_k"] = shrink(by_post, m["post"])
+    m["postw_s"], m["postw_k"] = shrink(by_postw, m["postw"])
     return m
+
+
+def shrink(by: dict[str, list[float]], center: float) -> tuple[dict[str, float], float]:
+    """Each session's median pulled toward `center`: (n * median + k * center) / (n + k) for a
+    session with n measurements, where k = within-session / between-session variance (one-way
+    ANOVA moments). Returns ({}, inf) when there is no between-session variance to use."""
+    multi = [v for v in by.values() if len(v) >= 2]
+    dof = sum(len(v) - 1 for v in multi)
+    if not dof or len(by) < 2:
+        return {}, np.inf
+    within = sum(((np.array(v) - np.mean(v)) ** 2).sum() for v in multi) / dof
+    means = [np.mean(v) for v in by.values()]
+    between = np.var(means, ddof=1) - within * np.mean([1 / len(v) for v in by.values()])
+    if between <= 0:
+        return {}, np.inf
+    k = within / between
+    return {s: (len(v) * st.median(v) + k * center) / (len(v) + k) for s, v in by.items()}, float(k)
 
 
 def measure_all(S: Store) -> dict[str, dict]:
@@ -142,10 +173,14 @@ def measure_all(S: Store) -> dict[str, dict]:
 
 
 def simulate(main, comps, trigger, M):
-    """Replay each session with compaction at `trigger` instead of where it happened."""
+    """Replay each session with compaction at `trigger` instead of where it happened. After a
+    compaction the context restarts at the session's own (shrunk) post-compaction context and write
+    when measured, else at the medians over all sessions."""
     reqs, done = [], []
     for sid, rs in main.items():
         bts = [c["t"] for c in comps.get(sid, [])]
+        post = M.get("post_s", {}).get(sid, M["post"])
+        postw = min(M.get("postw_s", {}).get(sid, M["postw"]), post)
         off, prev, prevcf = 0.0, None, None
         for r in rs:
             c = ctx(r)
@@ -156,8 +191,8 @@ def simulate(main, comps, trigger, M):
             cf = max(c + off, min(c, SYSTEM))
             if cf > trigger:
                 done.append(cf - M["g"])
-                off = M["post"] - c
-                cf, cw = M["post"], M["postw"]
+                off = post - c
+                cf, cw = post, postw
             if prev is not None and r["t"] - prev["t"] > 3600 and cw > 20e3:
                 cw = max(cf - SYSTEM, 0.0)  # cold cache: rewrite all of it
             else:
@@ -262,6 +297,14 @@ def report(S: Store, data_dir: Path, fitted: list[float] | None = None, model: s
         f" writes {M['postw'] / 1e3:.1f}K; growth per request mean {M['g'] / 1e3:.2f}K"
         f" median {M['g_med'] / 1e3:.2f}K"
     )
+    if M["post_s"]:
+        p = np.percentile(list(M["post_s"].values()), [10, 90])
+        print(
+            f"per-session post-compaction context ({len(M['post_s'])} sessions, shrunk with"
+            f" k={M['post_k']:.2f}, write k={M['postw_k']:.2f}):"
+            f" 10/90% {p[0] / 1e3:.1f}K / {p[1] / 1e3:.1f}K;"
+            f" sessions without a measured compaction use the median"
+        )
     use_model_w = fitted is None and model in FITTED_MODEL_W
     fitted_w = list(FITTED_MODEL_W[model] if use_model_w else (FITTED_W if fitted is None else fitted))
 

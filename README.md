@@ -112,9 +112,16 @@ The data directory is outside the repository: it holds your own usage.
 - **Replay.** Main-thread sessions since the switch to a 200K window (`2026-10-27`) are re-run
   at other triggers. The summary request is measured from cost-state minus transcript totals;
   growth `g` excludes compaction boundaries (allowing non-compaction negative deltas such as
-  microcompactions). The simulator clamps counterfactual context `cf ≥ min(c, SYSTEM)` and
-  caps/shrinks cache writes to `cf` (or `cf - SYSTEM` on cold caches). The analytical optimum
-  is `T* = R + sqrt(2 g (rf R + K0 / r))`. Bootstrap intervals over `replay` reflect weight
+  microcompactions). After a simulated compaction a session restarts at its own post-compaction
+  context and cache write (medians of the first request after its real compactions), shrunk toward
+  the all-session medians by `k = within / between`-session variance, so a session with one
+  compaction is not taken at face value; sessions without one use the medians. The context left is
+  not modelled as growing with the trigger: it tracks the triggering turn's overshoot (correlation
+  `~0.8`), not the context before that turn (`~-0.1`), and pre-switch compactions at `~268K` left
+  less (`40.6K`) than post-switch ones at `~169K` (`47.6K`). The simulator clamps counterfactual
+  context `cf ≥ min(c, SYSTEM)` and caps/shrinks cache writes to `cf` (or `cf - SYSTEM` on cold
+  caches). The analytical optimum, on the all-session medians, is
+  `T* = R + sqrt(2 g (rf R + K0 / r))`. Bootstrap intervals over `replay` reflect weight
   uncertainty only (using discrete nearest-rank percentiles so `"never"` is not interpolated),
   not session sampling or extrapolation beyond observed compaction triggers.
 - **Other models.** `replay --model` replays a model's own sessions once it has `10` measured
@@ -122,68 +129,75 @@ The data directory is outside the repository: it holds your own usage.
   fitted directly by `fit-log` (`FITTED_MODEL_W`, currently Fable), `replay` uses those weights
   directly on raw tokens rather than scaling by API price ratios.
 
-## Results (2026-11-23)
+## Results (2026-11-25)
 
 ### Weights
 
-Fitted on **57 clean whole windows** (`dp ≥ 15%`) in `fit-log` (Nov 12–23; 1 window skipped for an
-unexplained `+9%` external-usage jump; `0.06%` unattributed tokens in overlaps; `rms = 1.95`
+Fitted on **63 clean whole windows** (`dp ≥ 15%`) in `fit-log` (Nov 12–25; 1 window skipped for an
+unexplained `+9%` external-usage jump; `0.05%` unattributed tokens in overlaps; `rms = 1.91`
 percentage points, median `|error| = 0.74pp`), and cross-checked on **29 clean hit windows** out
 of 36 in `fit` (Oct 15–Nov 23; in-sample `rms = 2.82%`, dof-adjusted `3.10%`, leave-one-out
 `4.34%`):
 
-| weight (relative to input = 1, 1h write = 2) | API | `fit` (29 hit windows, with summaries) | `fit-log` (57 log windows, free Fable) |
+| weight (relative to input = 1, 1h write = 2) | API | `fit` (29 hit windows, with summaries) | `fit-log` (63 log windows, free Fable) |
 |---|---|---|---|
-| 5m cache write (`cw5`) | 1.25 | 1.25 (tied) | 2.05 (80%: 1.87–3.17) |
-| cache read | 0.05 | 0.0324 (80%: 0.022–0.045) | 0.0368 (80%: 0.0351–0.0395) |
-| output | 5 | 6.34 (80%: 3.9–10.7) | 7.63 (80%: 6.34–8.49) |
-| Sonnet token vs Opus token | 0.5 | 0.97 (80%: 0.89–1.34) | 0.74 (80%: 0.57–0.89) |
-| Fable write / output vs Opus | 2.0 | 4.02 (80%: 3.75–4.31) | 4.32 write / 3.24 output |
-| Fable cache read vs Opus read | 1.0 | 2.01 (tied to API ratio) | 2.65 (80%: 1.41–3.89) |
+| 5m cache write (`cw5`) | 1.25 | 1.25 (tied) | 2.06 (80%: 1.92–3.15) |
+| cache read | 0.05 | 0.0324 (80%: 0.022–0.045) | 0.0366 (80%: 0.0345–0.0381) |
+| output | 5 | 6.34 (80%: 3.9–10.7) | 7.65 (80%: 6.70–8.26) |
+| Sonnet token vs Opus token | 0.5 | 0.97 (80%: 0.89–1.34) | 0.74 (80%: 0.57–0.85) |
+| Fable write / output vs Opus | 2.0 | 4.02 (80%: 3.75–4.31) | 4.31 write / 3.24 output |
+| Fable cache read vs Opus read | 1.0 | 2.01 (tied to API ratio) | 2.68 (80%: 1.30–4.00) |
 
-- **5m cache writes (`cw5`)** count about the same as 1h writes (`2.05` vs `2.0`, 80%: `1.87–3.17`),
+- **5m cache writes (`cw5`)** count about the same as 1h writes (`2.06` vs `2.0`, 80%: `1.92–3.15`),
   rather than `1.25` at API ratios.
 - **Opus cache reads** are consistently cheaper relative to writes than on the API (`~0.037` vs
   `0.05` when `write = 2`), while `output` is loosely identified (`~5–8×`). `fit-log`'s Opus
-  budget is `10.21M` input units per 5h (`9.3M` in `fit`).
+  budget is `10.20M` input units per 5h (`9.3M` in `fit`).
 - **Date confound resolved.** Adding Nov 16 Fable and Nov 22 Opus hit windows rejects a Nov 12
   budget drop (`rms 10.12%` for `budget ×0.70` with `Fable = 1`, vs `2.82%` with Fable free;
   freeing both gives `Fable ×1.89`, `budget ×0.95`).
 - **Sonnet caveat.** In `fit`, Sonnet still leans on one clean window (`Tue 11-10 20:58`, leverage
-  `0.98`, LOO `113.7%`); `fit-log` measures Sonnet across multiple windows at `×1.47` its API
-  ratio (`0.74` Opus, 80%: `0.57–0.89` Opus).
+  `0.98`, LOO `113.6%`); `fit-log` measures Sonnet across multiple windows at `×1.47` its API
+  ratio (`0.74` Opus, 80%: `0.57–0.85` Opus).
 - **Fable cache reads.** In Fable's own token units (`1h write = 2`), `fit-log` gives Fable
-  `read = 0.0226` (80%: `0.0116–0.0414`) and `out = 5.74` (80%: `5.12–7.71`). The ratio of
-  Fable's `(read / write)` to Opus's `(read / write)` is `0.61` (bootstrap median `0.67`, 80% CI:
-  `0.28–1.10`), spanning both the API half-read ratio (`0.50`) and flat scaling (`1.00`, which
-  also fits at `rms = 2.20pp`, `med = 0.68pp`, `Fable = 3.54× Opus`).
+  `read = 0.0227` (80%: `0.0106–0.0408`) and `out = 5.74` (80%: `5.16–7.70`). The ratio of
+  Fable's `(read / write)` to Opus's `(read / write)` is `0.62` (bootstrap median `0.71`, 80% CI:
+  `0.29–1.12`), spanning both the API half-read ratio (`0.50`) and flat scaling (`1.00`, which
+  also fits at `rms = 2.13pp`, `med = 0.71pp`, `Fable = 3.53× Opus`).
 
 ### Compaction
 
-- **Opus (`107` sessions / `213` compactions):** summary request averages `4.2K` input, `1.0K`
-  cache write, `96%` context read, `6.7K` output (median `6.6K`); post-compaction request
-  (`n = 281`) has `47.3K` context (`34.7K` written); growth mean `2.15K` (median `1.26K`) per
-  request; one compaction costs `126K` input units plus reading the context.
+- **Opus (`112` sessions / `218` compactions):** summary request averages `4.2K` input, `1.0K`
+  cache write, `96%` context read, `6.7K` output (median `6.7K`); post-compaction request
+  (`n = 296`) has `47.6K` context (`35.0K` written); growth mean `2.16K` (median `1.25K`) per
+  request; one compaction costs `127K` input units plus reading the context.
+- **Per-session post-compaction context (Opus):** `71%` of its variance is between sessions.
+  Shrunk with `k ≈ 2` (a session with two compactions counts half its own median), `147` sessions
+  get their own value, `43.3K–53.1K` at `10/90%`; the other `642` replayed sessions use the median.
+  Sessions that keep much more (e.g. one left at `~79K` by large web-scraping results) now compact
+  as often in the replay as they really did; the overall optimum does not move.
 - **Fable (`10` sessions / `15` compactions):** summary request averages `5.3K` input, `1.2K`
   cache write, `96%` context read, `10.8K` output; post-compaction request (`n = 15`) has
   `42.9K` context (`30.3K` written); growth mean `3.22K` (median `2.17K`) per request; one
-  compaction costs `129K` Fable input units plus reading the context.
+  compaction costs `129K` Fable input units plus reading the context. Its 15 compactions show no
+  between-session variance, so every Fable session uses the median.
 
 ### Optimum
 
-| Model (sessions replayed) | flat range (`≤1%` of best) | grid best (window) | current `168K` | `270K` (`303K` window) |
+| Model (sessions replayed) | flat range (`≤1%` of best) | grid best (window) | `168K` (`201K` window) | `270K` (`303K` window) |
 |---|---|---|---|---|
-| **Opus** (`729` sessions, `294` comps) | **150K–200K** (`+0.2–0.5%`) | 180K (`213K`, analytic 169K) | +0.3% | +3.2% |
-| **Fable** (`52` own sessions, `16` comps) | **160K–200K** (`≤1.2%`) | 168K (`201K`, analytic 236K) | +0.0% | +2.9% (API) / +1.9% (fit-log) |
+| **Opus** (`789` sessions, `310` comps) | **150K–200K** (`+0.2–0.5%`) | 180K (`213K`, analytic 171K) | +0.2% | +2.9% |
+| **Fable** (`52` own sessions, `16` comps) | **160K–200K** (`≤1.2%`) | 168K (`201K`, analytic 235K) | +0.0% | +2.9% (API) / +1.9% (fit-log) |
 
 - **Opus:** Under `500` `fit-log` bootstrap weight samples (weight uncertainty only), the grid best
-  is `180K` across the `10/50/90%` range (`168K` penalty `0.3 / 0.3 / 0.4%`, `270K` penalty
-  `3.1 / 3.3 / 3.5%`). Across the 4 weekly cohorts (`10-27` to `11-17`), the best trigger stays
-  in `150K–180K`. Under API weights the grid best is `150K` (`168K` is `+1.0%`, `270K` is `+7.3%`).
+  is `170K / 180K / 180K` at `10/50/90%` (`168K` penalty `0.1 / 0.2 / 0.2%`, `270K` penalty
+  `2.6 / 3.0 / 3.3%`). Across the 5 weekly cohorts (`10-27` to `11-24`), the best trigger stays
+  in `150K–180K`. Under API weights the grid best is `130K` (`140K–160K` within `0.2%`; `168K` is
+  `+0.7%`, `270K` is `+6.7%`).
 - **Fable:** Now has `16` auto compactions of its own (`≥10`) and replays its own sessions using
-  `fit-log`'s Fable weights (`[1, 2.05, 2, 0.0226, 5.74]`). The best trigger is `168K` across
-  all `500` bootstrap weight samples (`10/50/90%` = `168K / 168K / 168K`, `270K` penalty
-  `2.1 / 2.5 / 2.9%`). (The earlier `250K` recommendation came from replaying Opus sessions
+  `fit-log`'s Fable weights (`[1, 2.06, 2, 0.0227, 5.74]`). The best trigger is `168K` at the
+  `10/50%` bootstrap weight samples and `300K` at `90%` (`168K` penalty `0.0 / 0.0 / 1.3%`, `270K`
+  penalty `0.8 / 2.2 / 4.1%`). (The earlier `250K` recommendation came from replaying Opus sessions
   assuming Fable's half-price API read ratio; on Fable's own higher-growth sessions and fitted
   weights, `250K` costs `+1.5%`.)
 - **Sonnet & Haiku:** `<10` measured auto compactions, so both replay the Opus sessions priced at
