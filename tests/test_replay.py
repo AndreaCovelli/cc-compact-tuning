@@ -1,3 +1,7 @@
+import itertools
+import re
+
+import numpy as np
 import pytest
 from conftest import request
 
@@ -164,3 +168,72 @@ def test_weekly_loop_covers_more_than_three_weeks(monkeypatch, tmp_path, capsys)
     replay.report(S, tmp_path, fitted=[1, 1.25, 2, 0.03, 5], model=replay.OPUS)
     out = capsys.readouterr().out
     assert out.count("sessions): best") >= 2
+
+
+def test_shrink_pulls_sessions_with_few_compactions_toward_the_center():
+    by = {"a": [60e3, 62e3, 58e3, 61e3], "b": [40e3, 41e3, 39e3, 40e3], "one": [80e3], "c": [50e3, 51e3]}
+    s, k = replay.shrink(by, 50e3)
+    assert 0 < k < 1
+    assert abs(s["a"] - 60.5e3) < abs(s["one"] - 80e3)  # four compactions are trusted more than one
+    assert 50e3 < s["one"] < 80e3 and 40e3 <= s["b"] < 41e3
+
+
+def test_shrink_falls_back_to_the_center_without_between_session_variance():
+    assert replay.shrink({"a": [40e3, 50e3], "b": [50e3, 40e3]}, 45e3) == ({}, np.inf)
+    assert replay.shrink({"a": [40e3]}, 40e3) == ({}, np.inf)
+
+
+def test_simulate_restarts_each_session_at_its_own_post_compaction_context():
+    s = growing_session() | {"t": growing_session()["s"]}
+    m = M | dict(post_s={"s": 70e3}, postw_s={"s": 90e3})  # a write above the context is capped by it
+    reqs, _ = replay.simulate(s, {}, 100e3, m)
+
+    def restarts(rr):  # (context, write) of each request right after a simulated compaction
+        return [(b[1] + b[2], b[1]) for a, b in itertools.pairwise(rr) if b[1] + b[2] < a[1] + a[2]]
+
+    own, other = restarts(reqs[:100]), restarts(reqs[100:])
+    assert set(own) == {(70e3, 70e3)} and set(other) == {(M["post"], M["postw"])}
+    assert len(own) > len(other)  # restarting higher, it reaches the trigger again sooner
+
+
+def test_measure_skips_per_session_values_without_repeat_compactions(monkeypatch):
+    monkeypatch.setattr(replay, "MIN_COMPACTIONS", 3)
+    S = compacting_store(replay.OPUS, n=4)
+    for k, after in enumerate((20e3, 30e3, 60e3, 70e3)):
+        S["requests"][f"s{k}-51"]["cr"] = after - 35e3 if after > 35e3 else 0
+        S["requests"][f"s{k}-51"]["cw1"] = min(after, 35e3)
+    m = replay.measure(S, replay.OPUS)
+    assert m["post"] == pytest.approx(45e3)
+    assert m["post_s"] == {} and m["post_k"] == np.inf  # one compaction per session: no within variance
+
+
+SONNET = "claude-sonnet-5-5"
+
+
+def test_a_fitted_factor_scales_the_compaction_cost_but_not_the_optimum():
+    w = [1, 1.25, 2, 0.05, 5]
+    T1, K1 = replay.optimum(M, w, SONNET)
+    T2, K2 = replay.optimum(M, w, SONNET, factor=1.5)
+    assert T2 == pytest.approx(T1) and K2 == pytest.approx(1.5 * K1)
+
+
+def test_report_prices_sonnet_with_its_fitted_factor_in_the_fitted_scenario(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(replay, "MIN_COMPACTIONS", 3)
+    monkeypatch.setattr(replay, "FITTED_W", list(replay.API_W))  # same weights in both scenarios
+    monkeypatch.setitem(replay.FITTED_FACTOR, SONNET, 2.0)
+    replay.report(compacting_store(replay.OPUS), tmp_path, model=SONNET)
+    out = capsys.readouterr().out
+    assert "fitted: x2.00 that (fit-log), 1 x Opus per input token" in out
+    fit, api = (float(x) for x in re.findall(r"one compaction costs (\d+)K", out))
+    assert fit == pytest.approx(2 * api, abs=1)
+    fit_best, api_best = re.findall(r"vs best \((\w+)\)", out)[:: len(replay.SHOWN)]
+    assert fit_best == api_best
+
+
+def test_explicit_weights_do_not_apply_the_fitted_factor(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(replay, "MIN_COMPACTIONS", 3)
+    replay.report(compacting_store(replay.OPUS), tmp_path, fitted=list(replay.API_W), model=SONNET)
+    out = capsys.readouterr().out
+    assert "fitted: x" not in out
+    fit, api = (float(x) for x in re.findall(r"one compaction costs (\d+)K", out))
+    assert fit == api
