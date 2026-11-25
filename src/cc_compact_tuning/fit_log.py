@@ -10,6 +10,12 @@ requests in the span so unlogged headless (`claude -p`) runs are counted too.
 Compared to `fit.py`, the log has enough data to free the 5-minute cache write (`cw5`) and
 Fable's own `(write, read, output)` weights instead of tying them to API ratios.
 
+The log also carries the 7-day percentage, so the same whole windows (5h percentage rising by
+at least 15 points, strictly below 100%) give how many 5h points one 7d point is worth: the
+pooled 5h rise over the pooled 7d rise, bootstrapped by window. Both limits see the same usage,
+so attribution and unexplained jumps don't matter here; the 7d value is logged in whole percent,
+so only the pooled ratio is reliable, not a single window's.
+
     cc-compact-tuning fit-log [LOG]       fit from the log (default: the status line's, plus
                                           what collect has saved of it)
     cc-compact-tuning fit-log --synthetic check the fit on a log made from known weights
@@ -41,17 +47,84 @@ def read_log(
     path: Path, S: Store, max_t: float | None = None
 ) -> list[tuple[float, str, str, float, int, str]]:
     """Lines of the log merged with those collect.py saved, sorted and capped at `max_t`."""
+    rows = parse_rate_log(_log_lines(path, S))
+    max_t = _max_t(S, max_t)
+    if max_t is not None:
+        rows = [r for r in rows if r[0] <= max_t]
+    return rows
+
+
+def _log_lines(path: Path, S: Store) -> set[str]:
     lines = set(S["rate_limits"])
     if path.exists():
         with open(path) as f:
             next(f, None)
             lines |= {line.rstrip("\n") for line in f}
-    rows = parse_rate_log(lines)
+    return lines
+
+
+def _max_t(S: Store, max_t: float | None) -> float | None:
     if max_t is None and S["requests"]:
-        max_t = max(r["t"] for r in S["requests"].values()) + 60.0
-    if max_t is not None:
-        rows = [r for r in rows if r[0] <= max_t]
-    return rows
+        return max(r["t"] for r in S["requests"].values()) + 60.0
+    return max_t
+
+
+def weekly_windows(
+    lines: set[str] | list[str], max_t: float | None = None, min_dp: float = 15.0
+) -> list[tuple[str, float, float]]:
+    """(acct7, 5h rise, 7d rise) per (reset5, acct7) window whose 5h percentage rose `>= min_dp`.
+
+    Uses the rows of the monotonic 5h progression strictly below 100% (as `log_windows`) and the
+    7d percentage on its first and last row.
+    """
+    by_win: dict[tuple[int, str], list[tuple[float, float, float]]] = collections.defaultdict(list)
+    for line in lines:
+        p = line.rstrip("\n").split("\t")
+        if len(p) < 7 or p[0] == "time" or not all(p[i] for i in (3, 4, 5, 6)):
+            continue
+        try:
+            t, p5, r5, p7 = float(p[0]), float(p[3]), int(float(p[4])), float(p[5])
+        except ValueError:
+            continue
+        if max_t is None or t <= max_t:
+            by_win[(r5, p[6])].append((t, p5, p7))
+    out = []
+    for (_, a7), evs in sorted(by_win.items()):
+        evs.sort()
+        mono: list[tuple[float, float]] = []
+        mx = -1.0
+        for _, p5, p7 in evs:
+            if mx < p5 < 100.0:
+                mono.append((p5, p7))
+                mx = p5
+        if len(mono) < 2:
+            continue
+        d5, d7 = mono[-1][0] - mono[0][0], mono[-1][1] - mono[0][1]
+        if d5 >= min_dp and d7 >= 0:
+            out.append((a7, d5, d7))
+    return out
+
+
+def weekly_ratio(ws: list[tuple[str, float, float]], n_boot: int = 500) -> dict:
+    """5h points per 7d point, pooled over windows, with a 10/50/90% bootstrap by window."""
+    d5 = np.array([w[1] for w in ws], float)
+    d7 = np.array([w[2] for w in ws], float)
+    rng = np.random.default_rng(0)
+    boot = []
+    for _ in range(n_boot):
+        i = rng.integers(0, len(ws), len(ws))
+        if d7[i].sum() > 0:
+            boot.append(d5[i].sum() / d7[i].sum())
+    by_acct: dict[str, list[float]] = collections.defaultdict(lambda: [0.0, 0.0])
+    for a7, x5, x7 in ws:
+        by_acct[a7][0] += x5
+        by_acct[a7][1] += x7
+    return dict(
+        ratio=float(d5.sum() / d7.sum()) if d7.sum() > 0 else float("nan"),
+        q=tuple(np.percentile(boot, [10, 50, 90])) if boot else (float("nan"),) * 3,
+        n=len(ws),
+        by_acct={a: x5 / x7 for a, (x5, x7) in by_acct.items() if x7 > 0},
+    )
 
 
 def log_windows(
@@ -470,6 +543,18 @@ def report(S: Store, data_dir: Path, log: Path, synthetic_log: bool = False) -> 
             continue
         q = np.percentile(valid, [10, 50, 90])
         print(f"  {label_k:12s} " + " / ".join(f"{x:{fmt}}" for x in q))
+
+    if not synthetic_log:
+        ws = weekly_windows(_log_lines(log, S), _max_t(S, None))
+        if len(ws) >= 3:
+            wr = weekly_ratio(ws)
+            acc = sorted(wr["by_acct"].values())
+            print(
+                f"\nweekly limit: 1% of 7d = {wr['ratio']:.2f}% of 5h "
+                f"(10/50/90%: {' / '.join(f'{x:.2f}' for x in wr['q'])}; {wr['n']} windows, "
+                f"{len(acc)} 7d accounts {acc[0]:.2f}-{acc[-1]:.2f}); "
+                f"a full 5h window = {100 / wr['ratio']:.1f}% of 7d"
+            )
 
     data_dir.mkdir(parents=True, exist_ok=True)
     np.savez(

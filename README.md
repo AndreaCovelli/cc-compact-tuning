@@ -146,6 +146,11 @@ yours is elsewhere. The data directory is outside the repository: it holds your 
   windows, `fit-log` frees `cw5` (relative to `cw1`) and Fable's own `(write, read, output)`
   weights alongside `read`, `output`, and Sonnet; bootstrap resamples over windows exclude
   resamples missing a model instead of filling `1.0`.
+- **Weekly limit (`fit-log`).** On the same `(5h reset, 7d reset)` groups and monotonic `<100%`
+  5h progression with `dp ≥ 15%`, the 7d percentage on the first and last row gives the 7d rise.
+  The ratio is pooled 5h rise over pooled 7d rise, bootstrapped by window. Attribution and jump
+  checks are not applied, since external usage counts toward both limits. The 7d value is logged
+  in whole percent, so a single window's ratio is coarse; the pooled one is not.
 - **Replay.** Main-thread sessions since the switch to a 200K window (`2026-10-27`) are re-run
   at other triggers. The summary request is measured from cost-state minus transcript totals;
   growth `g` excludes compaction boundaries (allowing non-compaction negative deltas such as
@@ -220,6 +225,9 @@ of 36 in `fit` (Oct 15–Nov 23; in-sample `rms = 2.82%`, dof-adjusted `3.10%`, 
   `18.3%` of the 5-hour limit, the same as a budget of `10.9M` input units at `write = 2`. The fits
   give `19.6%` (`fit-log`, `10.20M`) to `21.5%` (`fit`, `9.3M`), within `7–15%`. The table puts
   Sonnet 5.5 at `1 250 / 1 833 = 0.68` of Opus, inside `fit-log`'s `0.57–0.85`. It has no Fable entry.
+- **Weekly limit.** `1%` of the 7-day limit is `7.64%` of the 5-hour limit (80%: `7.57–7.71`,
+  `64` windows; `6.67–8.23` across the `8` weekly accounts), so a full 5-hour window uses `13.1%`
+  of the week and the week holds about `7.6` of them. The credit table has no weekly entry.
 
 ### Compaction
 

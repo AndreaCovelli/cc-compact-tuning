@@ -163,3 +163,30 @@ def test_synthetic_generates_clean_two_account_store(empty_store):
     W, _ = fit_log.log_windows(rows, S_syn, add_summaries=False, min_dp=10.0)
     assert len(W) == 4 and len({w["acct"] for w in W}) == 2
     assert fit_log.fit(W, free_cw5=True, fable_mode="flat")["rms"] < 1.0
+
+
+def test_weekly_ratio_recovers_7d_rate_and_skips_censored_and_small_windows():
+    true = 7.5  # 5h points per 7d point
+    lines = ["time\tsession\tmodel\tfive_hour_pct\tfive_hour_resets_at\tseven_day_pct\tseven_day_resets_at"]
+    p7 = 0.0
+    for w in range(12):
+        r5 = 100_000 + w * 18_000
+        acct = str(1_000_000 + (w // 6) * 604_800)
+        for k, p5 in enumerate(range(0, 90, 3)):
+            lines.append("\t".join(map(str, [r5 - 17_000 + 60 * k, "s1", "opus", p5, r5, round(p7), acct])))
+            p7 += 3 / true
+        p7 += 1 / true  # gap between windows
+        lines.append("\t".join(map(str, [r5 - 1000, "s1", "opus", 100, r5, 99, acct])))  # censored
+        lines.append("\t".join(map(str, [r5 - 900, "s1", "opus", 2, r5, 0, acct])))  # stale dip
+    # A window that rose only 10 points and one with no 7d value are skipped.
+    lines += ["\t".join(map(str, [900_000 + i, "s2", "opus", 5 + 5 * i, 905_000, 3, "x"])) for i in range(3)]
+    lines.append("\t".join(map(str, [950_000, "s3", "opus", 50, 960_000, "", "y"])))
+
+    ws = fit_log.weekly_windows(lines)
+    assert len(ws) == 12 and {w[0] for w in ws} == {"1000000", "1604800"}
+    assert all(w[1] == 87 for w in ws)
+    wr = fit_log.weekly_ratio(ws)
+    assert wr["ratio"] == pytest.approx(true, rel=0.05)
+    assert wr["q"][0] <= wr["ratio"] <= wr["q"][2]
+    assert set(wr["by_acct"]) == {"1000000", "1604800"}
+    assert fit_log.weekly_windows(lines, max_t=0.0) == []

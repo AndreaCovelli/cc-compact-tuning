@@ -21,7 +21,7 @@ It is unofficial: the transcript format and limit accounting are undocumented an
 | `pricing.py` | API list prices, `MODELS`, conversion of any model's tokens to Opus-equivalent |
 | `windows.py` | rebuilds 5-hour windows that ended in a limit hit; flags unclean / Fable-heavy ones |
 | `fit.py` | least-squares fit of the weights on clean windows, with bootstrap saved to the data dir |
-| `fit_log.py` | alternative fit from rate-limit log percentage steps; `--synthetic` self-check |
+| `fit_log.py` | alternative fit from rate-limit log percentage steps, plus the 7d-to-5h percentage ratio; `--synthetic` self-check |
 | `replay.py` | compaction cost measurement and trigger replay; holds `FITTED_W`, `FITTED_MODEL_W` and `FITTED_FACTOR` |
 | `tests/` | pytest; `conftest.py` has builders (`request`, `assistant`, `write_jsonl`, `T0`) |
 | `statusline/rate-limit-log.sh` | status-line command that writes the rate-limit log `fit-log` reads; its column order is what `collect` and `windows.parse_rate_log` expect |
