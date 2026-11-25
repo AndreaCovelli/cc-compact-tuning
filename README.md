@@ -161,6 +161,13 @@ yours is elsewhere. The data directory is outside the repository: it holds your 
   `T* = R + sqrt(2 g (rf R + K0 / r))`. Bootstrap intervals over `replay` reflect weight
   uncertainty only (using discrete nearest-rank percentiles so `"never"` is not interpolated),
   not session sampling or extrapolation beyond observed compaction triggers.
+- **Credit-table check (by hand).** Claude Code caches a GrowthBook flag, `tengu_amber_tally`,
+  in `~/.claude.json`: `fiveHourCredits` per rate-limit tier and `creditsPerMillionTokens` per
+  model. Before resuming a session with a cold cache, it warns with
+  `context / 1M × creditsPerMillionTokens / fiveHourCredits` as the share of the 5-hour limit
+  (seen in Claude Code 2.1.332). So a credit prices a token re-written to cache, which is compared
+  with `write / budget` from the fits. It is a client-side estimate for a warning, not the
+  server's accounting, and the flag can change or disappear.
 - **Other models.** `replay --model` replays a model's own sessions once it has `10` measured
   auto compactions (`MIN_COMPACTIONS`), else Opus's sessions. For models with per-model weights
   fitted directly by `fit-log` (`FITTED_MODEL_W`, currently Fable), `replay` uses those weights
@@ -208,6 +215,11 @@ of 36 in `fit` (Oct 15–Nov 23; in-sample `rms = 2.82%`, dof-adjusted `3.10%`, 
   Fable's `(read / write)` to Opus's `(read / write)` is `0.62` (bootstrap median `0.71`, 80% CI:
   `0.29–1.12`), spanning both the API half-read ratio (`0.50`) and flat scaling (`1.00`, which
   also fits at `rms = 2.13pp`, `med = 0.71pp`, `Fable = 3.53× Opus`).
+- **Credit table.** Claude Code's own table (see Method) gives Pro `10 000` credits per 5h and
+  Opus 5.5 `1 833` credits per million tokens re-cached. So re-caching `1M` Opus tokens costs
+  `18.3%` of the 5-hour limit, the same as a budget of `10.9M` input units at `write = 2`. The fits
+  give `19.6%` (`fit-log`, `10.20M`) to `21.5%` (`fit`, `9.3M`), within `7–15%`. The table puts
+  Sonnet 5.5 at `1 250 / 1 833 = 0.68` of Opus, inside `fit-log`'s `0.57–0.85`. It has no Fable entry.
 
 ### Compaction
 
