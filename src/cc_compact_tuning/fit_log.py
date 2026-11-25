@@ -1,11 +1,11 @@
 """Fit the usage weights from the status line's rate-limit log instead of limit hits.
 
-~/.claude/statusline.sh appends a line each time a session's 5-hour percentage changes (it has
-come in whole percent so far). Within one (5h reset, 7d reset) window, a monotonic progression
-strictly below 100% measures the budget share consumed over that window. When multiple accounts
-overlap in the log, requests and compaction summary requests are attributed by (session, timestamp)
-to (5h reset, 7d reset); single-account windows keep all requests in the span so unlogged headless
-(`claude -p`) runs are counted too.
+statusline/rate-limit-log.sh appends a line each time a session's rate limits change (the 5-hour
+percentage has come in whole percent so far). Within one (5h reset, 7d reset) window, a
+monotonic progression strictly below 100% measures the budget share consumed over that window.
+When multiple accounts overlap in the log, requests and compaction summary requests are
+attributed by (session, timestamp) to (5h reset, 7d reset); single-account windows keep all
+requests in the span so unlogged headless (`claude -p`) runs are counted too.
 
 Compared to `fit.py`, the log has enough data to free the 5-minute cache write (`cw5`) and
 Fable's own `(write, read, output)` weights instead of tying them to API ratios.

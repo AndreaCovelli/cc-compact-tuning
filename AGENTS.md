@@ -24,6 +24,7 @@ It is unofficial: the transcript format and limit accounting are undocumented an
 | `fit_log.py` | alternative fit from rate-limit log percentage steps; `--synthetic` self-check |
 | `replay.py` | compaction cost measurement and trigger replay; holds `FITTED_W`, `FITTED_MODEL_W` and `FITTED_FACTOR` |
 | `tests/` | pytest; `conftest.py` has builders (`request`, `assistant`, `write_jsonl`, `T0`) |
+| `statusline/rate-limit-log.sh` | status-line command that writes the rate-limit log `fit-log` reads; its column order is what `collect` and `windows.parse_rate_log` expect |
 | `systemd/` | user timer that runs `mise run collect` daily |
 
 ## Commands
