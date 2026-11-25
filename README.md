@@ -7,13 +7,15 @@ of the limit.
 > **Unofficial, and fragile by nature.** This reads Claude Code's local transcript files and
 > the status line's rate-limit fields, neither of which Anthropic documents or promises to keep
 > stable. How the usage limits weigh tokens is not published either: the weights here are
-> estimates fitted to one account's data, and Anthropic can change them without notice (they
+> estimates fitted to one user's Claude Pro accounts, and Anthropic can change them without notice (they
 > have changed before). A Claude Code update can change the transcript format and break
 > `collect`, and a change in limit accounting makes old fits stale. Treat the results as a
 > measurement of your own usage at the time, not as a specification. Not affiliated with or
 > endorsed by Anthropic.
 
 ## Usage
+
+Install [mise](https://mise.jdx.dev), set up the rate-limit logger (next section), then:
 
 ```sh
 mise install                  # pinned Python, uv and actionlint from mise.toml / mise.lock
@@ -39,6 +41,40 @@ Paths come from the environment and default to:
 | `CC_TUNING_DATA_DIR` | `~/.local/share/cc-compact-tuning` (store and bootstraps) |
 | `CC_TUNING_RATE_LOG` | `~/.local/state/claude-statusline/rate-limits.tsv` |
 
+## Rate-limit log
+
+`fit-log`, the main fit, needs a log of the usage-limit percentages that Claude Code passes to
+the status line (`rate_limits` in its JSON, present for Pro and Max accounts).
+[`statusline/rate-limit-log.sh`](statusline/rate-limit-log.sh) writes it. It needs bash and
+`jq`. Set it as the status line in `~/.claude/settings.json`, alone:
+
+```json
+"statusLine": { "type": "command", "command": "~/src/cc-compact-tuning/statusline/rate-limit-log.sh" }
+```
+
+or in front of an existing status line command, which gets the same input:
+
+```json
+"statusLine": { "type": "command", "command": "~/src/cc-compact-tuning/statusline/rate-limit-log.sh ~/.claude/statusline.sh" }
+```
+
+It appends to `CC_TUNING_RATE_LOG` (default `~/.local/state/claude-statusline/rate-limits.tsv`):
+time, session, model, 5h % and reset, 7d % and reset.
+
+- **When it writes:** only when a session's own numbers change, so an idle session showing
+  another account's numbers stays quiet. Only interactive sessions refresh the status line, so
+  headless `claude -p` runs are not logged (`fit-log` still counts their tokens when one account
+  is active).
+- **Pruning:** past 150 000 lines the log is cut to its last 100 000. Run `collect` regularly
+  (the timer below does) so it saves the older lines first. Per-session state older than a week
+  is deleted; it only holds the session's last line, which is already in the log.
+- **Fitting:** `fit-log` extracts whole-window observations per `(5h reset, 7d reset)` account,
+  attributing overlapping accounts by `(session, timestamp)` and preserving single-account
+  headless (`claude -p`) usage, which pins down `cw5`, Opus weights, Sonnet, and Fable's own
+  weights without single-window leverage issues.
+- **Fragile:** the `rate_limits` fields are undocumented; a Claude Code update can change or
+  remove them.
+
 ## Development
 
 ```sh
@@ -60,8 +96,8 @@ followed by `mise lock`. Never edit `uv.lock` or `mise.lock` by hand.
 
 ## Keeping the data
 
-Claude Code deletes transcripts older than `cleanupPeriodDays`, which is 30 by default and
-set to 365 here. `collect` saves what the analysis needs into
+Claude Code deletes transcripts older than `cleanupPeriodDays`, which is 30 by default; raising
+it (e.g. `"cleanupPeriodDays": 365` in `~/.claude/settings.json`) keeps them longer. `collect` saves what the analysis needs into
 `~/.local/share/cc-compact-tuning/store.json.gz`, so
 nothing is lost when a transcript goes. That is per-request token counts, compactions,
 limit hits, logins, cost-state records and the rate-limit log. It comes to about 2.3 MB
@@ -74,7 +110,8 @@ ln -sf ~/src/cc-compact-tuning/systemd/cc-compact-tuning-collect.{service,timer}
 systemctl --user daemon-reload && systemctl --user enable --now cc-compact-tuning-collect.timer
 ```
 
-The data directory is outside the repository: it holds your own usage.
+`WorkingDirectory` in the service assumes the clone is at `~/src/cc-compact-tuning`; edit it if
+yours is elsewhere. The data directory is outside the repository: it holds your own usage.
 
 ## Method
 
@@ -134,6 +171,10 @@ The data directory is outside the repository: it holds your own usage.
 
 ## Results (2026-11-25)
 
+Measured on one user's **Claude Pro** accounts (transcripts from Oct 15, rate-limit log from
+Nov 12). Budgets are per account and plan; other plans and other times may differ, and results
+from them are what would show how plans compare.
+
 ### Weights
 
 Fitted on **63 clean whole windows** (`dp ≥ 15%`) in `fit-log` (Nov 12–25; 1 window skipped for an
@@ -155,7 +196,7 @@ of 36 in `fit` (Oct 15–Nov 23; in-sample `rms = 2.82%`, dof-adjusted `3.10%`, 
   rather than `1.25` at API ratios.
 - **Opus cache reads** are consistently cheaper relative to writes than on the API (`~0.037` vs
   `0.05` when `write = 2`), while `output` is loosely identified (`~5–8×`). `fit-log`'s Opus
-  budget is `10.20M` input units per 5h (`9.3M` in `fit`).
+  budget on Pro is `10.20M` input units per 5h (`9.3M` in `fit`).
 - **Date confound resolved.** Adding Nov 16 Fable and Nov 22 Opus hit windows rejects a Nov 12
   budget drop (`rms 10.12%` for `budget ×0.70` with `Fable = 1`, vs `2.82%` with Fable free;
   freeing both gives `Fable ×1.89`, `budget ×0.95`).
@@ -208,17 +249,27 @@ of 36 in `fit` (Oct 15–Nov 23; in-sample `rms = 2.82%`, dof-adjusted `3.10%`, 
   Haiku at its API ratios (`Sonnet` optimum `150K–200K`, `Haiku` `90K` due to its `5×` rate above
   `100K`).
 
-## Rate-limit log
+## Related work
 
-`~/.claude/statusline.sh` appends to `~/.local/state/claude-statusline/rate-limits.tsv`:
-time, session, model, 5h % and reset, 7d % and reset.
+Anthropic does not publish how usage limits weigh tokens or what a plan's budget is. Other
+projects measure it too, each on its own account and at a different time, which is one reason
+their findings differ:
 
-- **When it writes:** only when a session's own numbers change, so an idle session showing
-  another account's numbers stays quiet.
-- **Pruning:** past 150 000 lines the log is cut to its last 100 000. `collect` has saved
-  the older lines by then. Per-session state older than a week is deleted; it only holds
-  the session's last line, which is already in the log.
-- **Fitting:** `fit-log` extracts whole-window observations per `(5h reset, 7d reset)` account,
-  attributing overlapping accounts by `(session, timestamp)` and preserving single-account
-  headless (`claude -p`) usage, which pins down `cw5`, Opus weights, Sonnet, and Fable's own
-  weights without single-window leverage issues.
+| Project | Method | Cache read (reported) |
+|---|---|---|
+| [claude-quota-meter](https://github.com/cwy433-png/claude-quota-meter) | Local proxy, status-line logger and test runs; a shared results format for pooling accounts | about free |
+| [claudeusage](https://glama.ai/mcp/servers/syk8015/claudeusage) | Weight fit on 107 five-hour windows from status-line samples | about 1/70 of input |
+| [claude-limits-reverse-engineering-skill](https://github.com/buildoak/claude-limits-reverse-engineering-skill) | Formula fit on 11 manual dashboard readings | 0.58 of input |
+| [ccmeter](https://github.com/iteebz/ccmeter) | Dollar budget per window over time, to catch changes | API price |
+| [claude-meter](https://github.com/abhishekray07/claude-meter) | Proxy capturing rate-limit headers | API price fits best |
+| [Medium write-up (Sep 2026)](https://medium.com/@oleksandrslobodianiuk/i-measured-the-claude-max-meter-here-is-what-a-token-actually-weighs-d3385a226d7c) | Controlled `claude -p` runs | about 1/19 of input |
+
+Here a cache read is `0.0366` of an uncached input token (about 1/27), inside that range. What
+this tool adds is the compaction replay and trigger optimum, two independent fits that cross-check
+each other with bootstrap ranges, attribution of overlapping accounts, and Fable weights per token
+type. Pooling results across accounts and plans is the way to narrow the spread; an export of the
+fitted weights without session data is planned.
+
+Whether undisclosed limits meet EU consumer-information rules is argued in Novović,
+["A Cat, Bought in a Bag"](https://kluwerlawonline.com/journalarticle/Journal+of+European+Consumer+and+Market+Law/15.4/EuCML2026032)
+(*EuCML*, 2026); this project only measures.
