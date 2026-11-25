@@ -15,7 +15,8 @@ context compacted minus the request before it, correlation ~0.8), not the contex
 
 Tokens are weighed either with per-model fitted weights from `fit-log` (when available in
 `FITTED_MODEL_W`, e.g. Fable) or at the model's API price ratios to Opus (Haiku costs 5x above a
-100K prompt) followed by Opus usage weights (`FITTED_W`). A model with fewer than MIN_COMPACTIONS
+100K prompt), times its fitted factor in `FITTED_FACTOR` (Sonnet), followed by Opus usage weights
+(`FITTED_W`); the API comparison uses the API ratios alone. A model with fewer than MIN_COMPACTIONS
 measured compactions is replayed on the Opus sessions instead. The bootstrap interval covers weight
 uncertainty only, not session sampling or extrapolation beyond observed triggers.
 """
@@ -41,6 +42,9 @@ FITTED_W = [1, 2.06, 2, 0.0366, 7.65]  # input, 5m write, 1h write, read, output
 FITTED_MODEL_W: dict[str, list[float]] = {
     MODELS["fable"]: [1, 2.06, 2, 0.0227, 5.74],
 }  # per-model fitted weights in that model's own tokens (fit-log)
+FITTED_FACTOR: dict[str, float] = {
+    MODELS["sonnet"]: 1.47,
+}  # fit-log: one factor on the model's API price ratios to Opus (Sonnet x1.47 = 0.74 Opus per token)
 
 
 def ctx(r):
@@ -223,11 +227,12 @@ def weigh(t, w):
     return t @ [win, cw1, cr, out]  # main-thread writes are 1h writes
 
 
-def optimum(M, w, model=OPUS, use_api_ratio=True):
+def optimum(M, w, model=OPUS, use_api_ratio=True, factor=1.0):
     """T* = R + sqrt(2 g (rf R + K0 / r)): K0 is everything a compaction costs except reading the
     context, including the first request after it writing ~34K instead of reading it. Uses the
-    model's base prices when `use_api_ratio` is True, so it ignores Haiku's dearer prompts above 100K."""
-    scale = price_ratio(model) if use_api_ratio else [1.0] * 5
+    model's base prices times `factor` when `use_api_ratio` is True, so it ignores Haiku's dearer
+    prompts above 100K."""
+    scale = [factor * x for x in price_ratio(model)] if use_api_ratio else [1.0] * 5
     win, cw5, cw1, cr, out = (a * b for a, b in zip(w, scale, strict=True))
     K0 = M["inp"] * win + M["cw"] * cw1 + M["out"] * out + M["postw"] * (cw1 - cr)
     return M["post"] + np.sqrt(2 * M["g"] * (M["rf"] * M["post"] + K0 / cr)), K0
@@ -306,6 +311,7 @@ def report(S: Store, data_dir: Path, fitted: list[float] | None = None, model: s
             f" sessions without a measured compaction use the median"
         )
     use_model_w = fitted is None and model in FITTED_MODEL_W
+    factor = FITTED_FACTOR.get(model, 1.0) if fitted is None and not use_model_w else 1.0
     fitted_w = list(FITTED_MODEL_W[model] if use_model_w else (FITTED_W if fitted is None else fitted))
 
     main_, side, comps = sessions(S, source)
@@ -321,22 +327,29 @@ def report(S: Store, data_dir: Path, fitted: list[float] | None = None, model: s
         long_ = f"; x{p[0] / PRICES[model][0]:.0f} that above {n / 1e3:.0f}K prompts"
     if model != OPUS and not use_model_w:
         print(f"priced as {name}: {ratio} x Opus (input, 5m write, 1h write, read, output){long_}")
+        if factor != 1.0:
+            print(
+                f"   fitted: x{factor:.2f} that (fit-log),"
+                f" {factor * price_ratio(model)[0]:.3g} x Opus per input token"
+            )
     elif use_model_w:
         print(f"fitted weights are per {name} token from fit-log (API comparison still uses {name} ratios)")
 
     actual = [(r["inp"], r["cw5"] + r["cw1"], r["cr"], r["out"], r["t"]) for rs in main_.values() for r in rs]
     c_pres = [c["pre"] for cs in comps.values() for c in cs]
     C_api = curve(main_, comps, M, model)
-    C_fit = curve(main_, comps, M, OPUS) if use_model_w else C_api
     tact_api = totals(actual, c_pres, M, model)
-    tact_fit = totals(actual, c_pres, M, OPUS) if use_model_w else tact_api
+    if use_model_w:
+        C_fit, tact_fit = curve(main_, comps, M, OPUS), totals(actual, c_pres, M, OPUS)
+    else:  # a fitted factor scales every category alike: the optimum and percentages stay put
+        C_fit, tact_fit = {t: factor * v for t, v in C_api.items()}, factor * tact_api
 
     scenarios = [
-        ("fitted", fitted_w, C_fit, tact_fit, not use_model_w, name if use_model_w else "Opus"),
-        ("API", API_W, C_api, tact_api, True, "Opus"),
+        ("fitted", fitted_w, C_fit, tact_fit, not use_model_w, name if use_model_w else "Opus", factor),
+        ("API", API_W, C_api, tact_api, True, "Opus", 1.0),
     ]
-    for wname, w, C_use, tact_use, use_api, unit in scenarios:
-        T, K0 = optimum(M, w, model, use_api_ratio=use_api)
+    for wname, w, C_use, tact_use, use_api, unit, f in scenarios:
+        T, K0 = optimum(M, w, model, use_api_ratio=use_api, factor=f)
         cost = {t: weigh(v, w) for t, v in C_use.items()}
         best = min(cost, key=cost.get)
         print(f"\n{wname} weights per {unit} token (input, 5m write, 1h write, read, output) = {w}")
@@ -360,7 +373,7 @@ def report(S: Store, data_dir: Path, fitted: list[float] | None = None, model: s
     boot = _boot_weights(data_dir, model, use_model_w) if fitted is None else None
     if boot is not None:
         ws_boot, boot_api = boot
-        C_b = C_api if boot_api else C_fit
+        C_b = C_api if boot_api and use_model_w else C_fit  # Opus samples on Fable: API ratios
         opt, pen, pen2 = [], [], []
         for w_b in ws_boot:
             cost = {t: weigh(v, w_b) for t, v in C_b.items()}

@@ -127,7 +127,10 @@ The data directory is outside the repository: it holds your own usage.
 - **Other models.** `replay --model` replays a model's own sessions once it has `10` measured
   auto compactions (`MIN_COMPACTIONS`), else Opus's sessions. For models with per-model weights
   fitted directly by `fit-log` (`FITTED_MODEL_W`, currently Fable), `replay` uses those weights
-  directly on raw tokens rather than scaling by API price ratios.
+  directly on raw tokens rather than scaling by API price ratios. For models with one fitted
+  factor on their API ratios (`FITTED_FACTOR`, currently Sonnet `×1.47`), the fitted scenario
+  multiplies the API ratios by it; the API comparison does not. The factor scales every category
+  alike, so it changes the totals but not the optimum or the percentages.
 
 ## Results (2026-11-25)
 
@@ -200,8 +203,10 @@ of 36 in `fit` (Oct 15–Nov 23; in-sample `rms = 2.82%`, dof-adjusted `3.10%`, 
   penalty `0.8 / 2.2 / 4.1%`). (The earlier `250K` recommendation came from replaying Opus sessions
   assuming Fable's half-price API read ratio; on Fable's own higher-growth sessions and fitted
   weights, `250K` costs `+1.5%`.)
-- **Sonnet & Haiku:** `<10` measured auto compactions, so both replay the Opus sessions priced at
-  their API ratios (`Sonnet` optimum `150K–200K`, `Haiku` `90K` due to its `5×` rate above `100K`).
+- **Sonnet & Haiku:** `<10` measured auto compactions, so both replay the Opus sessions, Sonnet
+  at `fit-log`'s `×1.47` its API ratio (`0.735` Opus per token; one compaction `93K` units) and
+  Haiku at its API ratios (`Sonnet` optimum `150K–200K`, `Haiku` `90K` due to its `5×` rate above
+  `100K`).
 
 ## Rate-limit log
 

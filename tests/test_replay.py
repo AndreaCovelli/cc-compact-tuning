@@ -1,4 +1,5 @@
 import itertools
+import re
 
 import numpy as np
 import pytest
@@ -204,3 +205,35 @@ def test_measure_skips_per_session_values_without_repeat_compactions(monkeypatch
     m = replay.measure(S, replay.OPUS)
     assert m["post"] == pytest.approx(45e3)
     assert m["post_s"] == {} and m["post_k"] == np.inf  # one compaction per session: no within variance
+
+
+SONNET = "claude-sonnet-5-5"
+
+
+def test_a_fitted_factor_scales_the_compaction_cost_but_not_the_optimum():
+    w = [1, 1.25, 2, 0.05, 5]
+    T1, K1 = replay.optimum(M, w, SONNET)
+    T2, K2 = replay.optimum(M, w, SONNET, factor=1.5)
+    assert T2 == pytest.approx(T1) and K2 == pytest.approx(1.5 * K1)
+
+
+def test_report_prices_sonnet_with_its_fitted_factor_in_the_fitted_scenario(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(replay, "MIN_COMPACTIONS", 3)
+    monkeypatch.setattr(replay, "FITTED_W", list(replay.API_W))  # same weights in both scenarios
+    monkeypatch.setitem(replay.FITTED_FACTOR, SONNET, 2.0)
+    replay.report(compacting_store(replay.OPUS), tmp_path, model=SONNET)
+    out = capsys.readouterr().out
+    assert "fitted: x2.00 that (fit-log), 1 x Opus per input token" in out
+    fit, api = (float(x) for x in re.findall(r"one compaction costs (\d+)K", out))
+    assert fit == pytest.approx(2 * api, abs=1)
+    fit_best, api_best = re.findall(r"vs best \((\w+)\)", out)[:: len(replay.SHOWN)]
+    assert fit_best == api_best
+
+
+def test_explicit_weights_do_not_apply_the_fitted_factor(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(replay, "MIN_COMPACTIONS", 3)
+    replay.report(compacting_store(replay.OPUS), tmp_path, fitted=list(replay.API_W), model=SONNET)
+    out = capsys.readouterr().out
+    assert "fitted: x" not in out
+    fit, api = (float(x) for x in re.findall(r"one compaction costs (\d+)K", out))
+    assert fit == api
